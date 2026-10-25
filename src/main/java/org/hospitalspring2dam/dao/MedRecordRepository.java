@@ -14,4 +14,6 @@ public interface MedRecordRepository {
     void update(MedRecord medRecordDatabase);
 
     void delete(int idDelete);
+
+    void deleteByPatient(int idDelete);
 }

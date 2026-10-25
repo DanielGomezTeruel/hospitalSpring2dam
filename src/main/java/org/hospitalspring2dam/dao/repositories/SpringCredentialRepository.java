@@ -7,6 +7,7 @@ import org.hospitalspring2dam.dao.common.SQLQueries;
 import org.hospitalspring2dam.dao.mappers.CredentialsSQLMapper;
 import org.hospitalspring2dam.dao.model.Credentials;
 import org.hospitalspring2dam.domain.exceptions.CredentialsDBException;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
 import java.sql.*;
@@ -19,10 +20,12 @@ public class SpringCredentialRepository implements CredentialRepository {
 
     private final DBConnection db;
     private final CredentialsSQLMapper credentialsSQLMapper;
+    private final JdbcClient jdbcClient;
 
-    public SpringCredentialRepository(DBConnection db, CredentialsSQLMapper credentialsSQLMapper) {
+    public SpringCredentialRepository(DBConnection db, CredentialsSQLMapper credentialsSQLMapper, JdbcClient jdbcClient) {
         this.db = db;
         this.credentialsSQLMapper = credentialsSQLMapper;
+        this.jdbcClient = jdbcClient;
     }
 
     @Override
@@ -53,7 +56,9 @@ public class SpringCredentialRepository implements CredentialRepository {
     }
 
     @Override
-    public void delete(int idDelete) {
-
+    public void deleteByPatient(int patient_id) {
+        jdbcClient.sql(SQLQueries.DELETE_patient_cred)
+                .param("patient_id", patient_id)
+                .update();
     }
 }

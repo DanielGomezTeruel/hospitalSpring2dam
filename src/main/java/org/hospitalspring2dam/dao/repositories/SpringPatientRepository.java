@@ -1,16 +1,18 @@
 package org.hospitalspring2dam.dao.repositories;
 
 
-import org.hospitalspring2dam.dao.PatientRepository;
+import org.hospitalspring2dam.dao.*;
 import org.hospitalspring2dam.dao.common.DBConnection;
 import org.hospitalspring2dam.dao.common.SQLQueries;
 import org.hospitalspring2dam.dao.mappers.PatientSQLMapper;
 import org.hospitalspring2dam.dao.model.Patient;
-import org.hospitalspring2dam.domain.exceptions.DatabaseException;
 import org.hospitalspring2dam.domain.exceptions.DuplicatedUsernameException;
 import org.hospitalspring2dam.domain.exceptions.ForeignKeyException;
 import org.hospitalspring2dam.domain.exceptions.PatientDBException;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.*;
 import java.util.ArrayList;
@@ -24,27 +26,29 @@ public class SpringPatientRepository implements PatientRepository {
 
     private final DBConnection db;
     private final PatientSQLMapper patientSQLMapper;
+    private final JdbcClient jdbcClient;
+    private final CredentialRepository credentialRepository;
+    private final MedRecordRepository medRecordRepository;
+    private final PaymentRepository paymentRepository;
+    private final AppointmentRepository appointmentRepository;
 
 
 
-    public SpringPatientRepository(DBConnection db, PatientSQLMapper patientSQLMapper) {
+    public SpringPatientRepository(DBConnection db, PatientSQLMapper patientSQLMapper, JdbcClient jdbcClient, CredentialRepository credentialRepository, MedRecordRepository medRecordRepository, PaymentRepository paymentRepository, AppointmentRepository appointmentRepository) {
         this.db = db;
         this.patientSQLMapper = patientSQLMapper;
+        this.jdbcClient = jdbcClient;
+        this.credentialRepository = credentialRepository;
+        this.medRecordRepository = medRecordRepository;
+        this.paymentRepository = paymentRepository;
+        this.appointmentRepository = appointmentRepository;
     }
 
     @Override
     public List<Patient> getAll() {
-        try (Connection con = db.getConnection();
-             Statement statement = con.createStatement()) {
-
-            ResultSet rs = statement.executeQuery(SQLQueries.SELECT_patients_QUERY);
-            patients=patientSQLMapper.mapPatient(rs);
-
-        } catch (SQLException ex) {
-            Logger.getLogger(SpringPatientRepository.class.getName()).log(Level.SEVERE, null, ex);
-            throw new PatientDBException();
-        }
-        return patients;
+        return jdbcClient
+                .sql(SQLQueries.SELECT_patients_QUERY)
+                .query(patientSQLMapper).list();
     }
 
     @Override
@@ -95,93 +99,27 @@ public class SpringPatientRepository implements PatientRepository {
 
     @Override
     public void update(Patient patient) {
-        int id = 0;
-        try (Connection con = db.getConnection()){
-            try(PreparedStatement preparedStatement1 = con.prepareStatement(SQLQueries.UPDATE_PATIENT, Statement.RETURN_GENERATED_KEYS);
-                PreparedStatement preparedStatement2 = con.prepareStatement(SQLQueries.UPDATE_PATIENT_CREDENTIALS)) {
-
-                con.setAutoCommit(false);
-
-                preparedStatement1.setString(1, patient.getName());
-                preparedStatement1.setDate(2, Date.valueOf(patient.getBirthDate()));
-                preparedStatement1.setString(3, patient.getPhone());
-                preparedStatement1.setInt(4, patient.getId());
-
-                int rowsAffected = preparedStatement1.executeUpdate();
-                if(rowsAffected>0){
-                    ResultSet rs = preparedStatement1.getGeneratedKeys();
-                    if(rs.next()){
-                        id=rs.getInt(1);
-                        preparedStatement2.setString(1, patient.getCredential().getUsername());
-                        preparedStatement2.setString(2, patient.getCredential().getPassword());
-                        preparedStatement2.setInt(3, id);
-                        preparedStatement2.executeUpdate();
-                        con.commit();
-                    }
-                }else{
-                    throw new DatabaseException("User doesn't exist");
-                }
-
-            }catch(SQLException sqle) {
-                Logger.getLogger(SpringPatientRepository.class.getName()).log(Level.SEVERE, null, sqle);
-                try {
-                    con.rollback();
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            }finally{
-                con.setAutoCommit(true);
-            }
-
-        }catch (SQLException ex) {
-            Logger.getLogger(SpringPatientRepository.class.getName()).log(Level.SEVERE, null, ex);
-            throw new PatientDBException();
-        }
+        jdbcClient.sql(SQLQueries.UPDATE_PATIENT)
+                .param("name", patient.getName())
+                .param("date_of_birth", Date.valueOf(patient.getBirthDate()))
+                .param("phone", patient.getPhone())
+                .param("patient_id", patient.getId())
+                .update();
     }
 
     @Override
+    @Transactional
     public void delete(int idDelete, boolean answer) {
-        try (Connection con = db.getConnection()) {
-
-                con.setAutoCommit(false);
-
-                try (PreparedStatement preparedStatement1 = con.prepareStatement(SQLQueries.DELETE_patient_cred);
-                     PreparedStatement preparedStatement2 = con.prepareStatement(SQLQueries.DELETE_patient_appointments);
-                     PreparedStatement preparedStatement3 = con.prepareStatement(SQLQueries.DELETE_patient_payments);
-                     PreparedStatement preparedStatement4 = con.prepareStatement(SQLQueries.DELETE_patient_medications);
-                     PreparedStatement preparedStatement5 = con.prepareStatement(SQLQueries.DELETE_patient_medRecords);
-                     PreparedStatement preparedStatement6 = con.prepareStatement(SQLQueries.DELETE_patient)) {
-
-                    preparedStatement1.setInt(1, idDelete);
-                    preparedStatement2.setInt(1, idDelete);
-                    preparedStatement3.setInt(1, idDelete);
-
-                    if(!answer) {
-                        preparedStatement4.setInt(1, idDelete);
-                        preparedStatement5.setInt(1, idDelete);
-
-                        preparedStatement4.executeQuery();
-                        preparedStatement5.executeQuery();
-                    }
-                    preparedStatement6.setInt(1, idDelete);
-
-                    preparedStatement1.executeQuery();
-                    preparedStatement2.executeQuery();
-                    preparedStatement3.executeQuery();
-                    preparedStatement6.executeQuery();
-
-                    con.commit();
-
-                } catch (SQLIntegrityConstraintViolationException e) {
-                    con.rollback();
-                    throw new ForeignKeyException("Patient deletion incomplete");
-
-                }finally{
-                    con.setAutoCommit(true);
-                }
-
-        }catch(SQLException sqle) {
-            Logger.getLogger(SpringPatientRepository.class.getName()).log(Level.SEVERE, null, sqle);
+        paymentRepository.deleteByPatient(idDelete);
+        appointmentRepository.deleteByPatient(idDelete);
+        credentialRepository.deleteByPatient(idDelete);
+        if(answer){
+            medRecordRepository.deleteByPatient(idDelete);
+        }
+        try {
+            jdbcClient.sql(SQLQueries.DELETE_patient).param("patient_id", idDelete);
+        } catch (DataIntegrityViolationException e) {
+            throw new ForeignKeyException("Patient deletion incomplete");
         }
     }
 

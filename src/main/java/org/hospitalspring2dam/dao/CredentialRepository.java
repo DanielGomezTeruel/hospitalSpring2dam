@@ -9,6 +9,5 @@ public interface CredentialRepository {
     int add(Credentials credentials);
 
     void update(Credentials credentialsDatabase);
-
-    void delete(int idDelete);
+    void deleteByPatient(int idDelete);
 }
